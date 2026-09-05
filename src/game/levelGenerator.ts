@@ -58,17 +58,28 @@ export function generateLevel({ levelNumber, seed, bank, recentlyUsedWords }: Ge
     group[0] = { id: nextId(), word: herring.word, trueCategoryId: herring.trueCategory, isRedHerring: true }
   }
 
-  const allCards = shuffle(rng, Array.from(cardsByCategory.values()).flat())
-  const totalCards = allCards.length
+  const groups = shuffle(rng, Array.from(cardsByCategory.values()))
+  const stockGroupCount = Math.min(groups.length - 1, Math.round(groups.length * params.stockFraction))
+  const stockGroups = groups.slice(0, stockGroupCount)
+  const tableauGroups = groups.slice(stockGroupCount)
 
-  const stockCount = Math.min(totalCards - params.columns, Math.round(totalCards * params.stockFraction))
-  const stock = allCards.slice(0, stockCount)
-  const tableauCards = allCards.slice(stockCount)
-
+  // Push each category's 4 cards together onto the 4 currently-shortest
+  // columns, one card per column. This guarantees the most-recently-placed
+  // group is always fully exposed (all 4 members on top of their columns),
+  // so there is always at least one valid match available — the board can
+  // never be stuck from the very first move.
   const columns: Column[] = Array.from({ length: params.columns }, () => [])
-  tableauCards.forEach((card, i) => {
-    columns[i % params.columns].push(card)
-  })
+  for (const group of tableauGroups) {
+    const targetColumns = columns
+      .map((_, index) => index)
+      .sort((a, b) => columns[a].length - columns[b].length)
+      .slice(0, 4)
+    const shuffledCards = shuffle(rng, group)
+    targetColumns.forEach((colIndex, i) => columns[colIndex].push(shuffledCards[i]))
+  }
+
+  const stock = shuffle(rng, stockGroups.flat())
+  const totalCards = tableauGroups.length * 4 + stock.length
 
   return { columns, stock, totalCards, categoriesUsed, maxMistakes: params.maxMistakes }
 }
