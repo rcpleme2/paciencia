@@ -1,9 +1,12 @@
 # Paciência de Associações
 
 Um jogo de paciência (solitaire) em que, em vez de naipes e números, as
-cartas trazem palavras em português. O objetivo é limpar o tabuleiro
-selecionando grupos de 4 cartas que pertencem à mesma categoria, driblando
-"pegadinhas" (palavras que parecem se encaixar em mais de uma categoria).
+cartas trazem palavras em português. Misturadas no baralho também há
+cartas de categoria (ex: "Frutas"), que precisam ser reveladas primeiro.
+Depois de revelada, uma categoria vira uma "cesta" onde você deposita, uma
+de cada vez, as palavras que pertencem a ela — cuidado com "pegadinhas"
+(palavras que parecem se encaixar em mais de uma categoria). O objetivo é
+esvaziar o tabuleiro e o monte, completando todas as categorias.
 
 ## Rodando localmente
 
@@ -21,9 +24,9 @@ npm run dev
 
 ## Arquitetura
 
-- `src/game/` — lógica pura do jogo (geração de níveis, validação de
-  combinação, detecção de tabuleiro travado, o reducer principal). Sem
-  dependência de React/DOM, testada com Vitest.
+- `src/game/` — lógica pura do jogo (geração de níveis, detecção de
+  tabuleiro travado, o reducer principal). Sem dependência de React/DOM,
+  testada com Vitest.
 - `src/data/categories.ts` — banco de categorias e palavras (incluindo as
   palavras "ambíguas" usadas como pegadinhas) que alimenta o gerador
   procedural de níveis.
@@ -33,7 +36,7 @@ npm run dev
 - `src/state/` — `GameProvider`/`useGame`, o `useReducer` que guarda o
   estado da partida atual.
 - `src/components/` — camada de apresentação (tabuleiro, colunas, cartas,
-  monte, HUD, modais de vitória/derrota).
+  cestas de categoria, monte, HUD, modais de vitória/derrota).
 
 ## Publicação no GitHub Pages
 

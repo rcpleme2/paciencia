@@ -1,6 +1,6 @@
 import { difficulty } from './difficulty'
-import { mulberry32, pickRandom, shuffle } from './rng'
-import type { Card, CategoryId, Column, WordBank } from './types'
+import { mulberry32, pickRandom, randomInt, shuffle } from './rng'
+import type { Card, CategoryId, CategoryMarkerCard, Column, WordBank, WordCard } from './types'
 
 export interface GenerateLevelInput {
   levelNumber: number
@@ -9,11 +9,18 @@ export interface GenerateLevelInput {
   recentlyUsedWords?: Set<string>
 }
 
+export interface CategoryDef {
+  categoryId: CategoryId
+  label: string
+  size: number
+}
+
 export interface GenerateLevelOutput {
   columns: Column[]
   stock: Card[]
   totalCards: number
   categoriesUsed: CategoryId[]
+  categoryDefs: CategoryDef[]
   maxMistakes: number
 }
 
@@ -23,26 +30,32 @@ function nextId(): string {
   return `card-${uid}-${Date.now().toString(36)}`
 }
 
+const MIN_CATEGORY_SIZE = 3
+const MAX_CATEGORY_SIZE = 6
+
 export function generateLevel({ levelNumber, seed, bank, recentlyUsedWords }: GenerateLevelInput): GenerateLevelOutput {
   const params = difficulty(levelNumber)
   const rng = mulberry32(seed)
-  const groupCount = params.totalCards / 4
   const recentlyUsed = recentlyUsedWords ?? new Set<string>()
 
-  const eligible = bank.categories.filter((c) => c.words.filter((w) => !recentlyUsed.has(w)).length >= 4)
-  const pool = eligible.length >= groupCount ? eligible : bank.categories
-  const chosenCategories = pickRandom(rng, pool, groupCount)
+  const eligible = bank.categories.filter((c) => c.words.filter((w) => !recentlyUsed.has(w)).length >= MIN_CATEGORY_SIZE)
+  const pool = eligible.length >= params.categoryCount ? eligible : bank.categories
+  const chosenCategories = pickRandom(rng, pool, params.categoryCount)
   const categoriesUsed = chosenCategories.map((c) => c.id)
 
-  const cardsByCategory = new Map<CategoryId, Card[]>()
+  const wordCardsByCategory = new Map<CategoryId, WordCard[]>()
+  const categoryDefs: CategoryDef[] = []
+
   for (const category of chosenCategories) {
     const freshWords = category.words.filter((w) => !recentlyUsed.has(w))
-    const wordsToUse = freshWords.length >= 4 ? freshWords : category.words
-    const words = pickRandom(rng, wordsToUse, 4)
-    cardsByCategory.set(
+    const wordsToUse = freshWords.length >= MIN_CATEGORY_SIZE ? freshWords : category.words
+    const desiredSize = randomInt(rng, MIN_CATEGORY_SIZE, MAX_CATEGORY_SIZE)
+    const words = pickRandom(rng, wordsToUse, desiredSize)
+    wordCardsByCategory.set(
       category.id,
-      words.map((word) => ({ id: nextId(), word, trueCategoryId: category.id, isRedHerring: false })),
+      words.map((word) => ({ kind: 'word', id: nextId(), word, trueCategoryId: category.id, isRedHerring: false })),
     )
+    categoryDefs.push({ categoryId: category.id, label: category.label, size: words.length })
   }
 
   const liveHerrings = shuffle(
@@ -53,33 +66,56 @@ export function generateLevel({ levelNumber, seed, bank, recentlyUsedWords }: Ge
   ).slice(0, params.redHerringCount)
 
   for (const herring of liveHerrings) {
-    const group = cardsByCategory.get(herring.trueCategory)
+    const group = wordCardsByCategory.get(herring.trueCategory)
     if (!group || group.some((c) => c.word === herring.word)) continue
-    group[0] = { id: nextId(), word: herring.word, trueCategoryId: herring.trueCategory, isRedHerring: true }
+    group[0] = { kind: 'word', id: nextId(), word: herring.word, trueCategoryId: herring.trueCategory, isRedHerring: true }
   }
 
-  const groups = shuffle(rng, Array.from(cardsByCategory.values()))
-  const stockGroupCount = Math.min(groups.length - 1, Math.round(groups.length * params.stockFraction))
-  const stockGroups = groups.slice(0, stockGroupCount)
-  const tableauGroups = groups.slice(stockGroupCount)
+  const categoryMarkers: CategoryMarkerCard[] = chosenCategories.map((category) => ({
+    kind: 'category',
+    id: nextId(),
+    categoryId: category.id,
+    label: category.label,
+  }))
 
-  // Push each category's 4 cards together onto the 4 currently-shortest
-  // columns, one card per column. This guarantees the most-recently-placed
-  // group is always fully exposed (all 4 members on top of their columns),
-  // so there is always at least one valid match available — the board can
-  // never be stuck from the very first move.
+  const allCards: Card[] = shuffle(rng, [...Array.from(wordCardsByCategory.values()).flat(), ...categoryMarkers])
+  const totalCards = allCards.length
+
+  const initialTableauCount = Math.min(randomInt(rng, 8, 12), totalCards)
+  const tableauPool = allCards.slice(0, initialTableauCount)
+  const stockPool = allCards.slice(initialTableauCount)
+
+  // Guarantee at least one category card is dealt into the initial tableau,
+  // so the player always has an immediate, valid first move available
+  // (promoting it into a foundation).
+  if (!tableauPool.some((c) => c.kind === 'category')) {
+    const markerIndex = stockPool.findIndex((c) => c.kind === 'category')
+    if (markerIndex !== -1) {
+      const [marker] = stockPool.splice(markerIndex, 1)
+      stockPool.push(tableauPool.pop()!)
+      tableauPool.push(marker)
+    }
+  }
+
   const columns: Column[] = Array.from({ length: params.columns }, () => [])
-  for (const group of tableauGroups) {
-    const targetColumns = columns
-      .map((_, index) => index)
-      .sort((a, b) => columns[a].length - columns[b].length)
-      .slice(0, 4)
-    const shuffledCards = shuffle(rng, group)
-    targetColumns.forEach((colIndex, i) => columns[colIndex].push(shuffledCards[i]))
+  tableauPool.forEach((card, i) => {
+    columns[i % params.columns].push(card)
+  })
+
+  // Guarantee a category card ends up on top (active) of some column, so
+  // the very first tap is always a valid, useful move.
+  if (!columns.some((col) => col.length > 0 && col[col.length - 1].kind === 'category')) {
+    for (const col of columns) {
+      const markerIdx = col.findIndex((c) => c.kind === 'category')
+      if (markerIdx !== -1 && markerIdx !== col.length - 1) {
+        const [marker] = col.splice(markerIdx, 1)
+        col.push(marker)
+        break
+      }
+    }
   }
 
-  const stock = shuffle(rng, stockGroups.flat())
-  const totalCards = tableauGroups.length * 4 + stock.length
+  const stock = shuffle(rng, stockPool)
 
-  return { columns, stock, totalCards, categoriesUsed, maxMistakes: params.maxMistakes }
+  return { columns, stock, totalCards, categoriesUsed, categoryDefs, maxMistakes: params.maxMistakes }
 }

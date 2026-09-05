@@ -1,15 +1,14 @@
-import { activeCards, emptyColumnCount } from './boardQueries'
-import type { Column, Card } from './types'
+import { activeCards } from './boardQueries'
+import type { Column, Card, Foundation } from './types'
 
-export function isBoardStuck(tableau: Column[], stock: Card[]): boolean {
+export function isBoardStuck(tableau: Column[], stock: Card[], foundations: Foundation[]): boolean {
   if (stock.length > 0) return false
-  if (emptyColumnCount(tableau) > 0 && stock.length > 0) return false
 
   const active = activeCards(tableau)
-  const counts = new Map<string, number>()
-  for (const card of active) {
-    counts.set(card.trueCategoryId, (counts.get(card.trueCategoryId) ?? 0) + 1)
-  }
-  const hasCompletableGroup = Array.from(counts.values()).some((count) => count >= 4)
-  return !hasCompletableGroup
+  const hasPromotableCategory = active.some((c) => c.kind === 'category')
+  if (hasPromotableCategory) return false
+
+  const foundCategoryIds = new Set(foundations.map((f) => f.categoryId))
+  const hasDepositableWord = active.some((c) => c.kind === 'word' && foundCategoryIds.has(c.trueCategoryId))
+  return !hasDepositableWord
 }

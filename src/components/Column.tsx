@@ -6,14 +6,16 @@ const OVERLAP_PX = 34
 
 export function Column({
   column,
-  selected,
-  shake,
-  onCardClick,
+  heldWordId,
+  shakeCardId,
+  onWordClick,
+  onCategoryClick,
 }: {
   column: ColumnType
-  selected: string[]
-  shake: boolean
-  onCardClick: (cardId: string) => void
+  heldWordId: string | null
+  shakeCardId: string | null
+  onWordClick: (cardId: string) => void
+  onCategoryClick: (cardId: string) => void
 }) {
   return (
     <div className="column" style={{ minHeight: Math.max(140, column.length * OVERLAP_PX + 110) }}>
@@ -22,9 +24,9 @@ export function Column({
           key={card.id}
           card={card}
           isActive={isActive(column, card)}
-          selectionOrder={selected.indexOf(card.id)}
-          shake={shake && selected.includes(card.id)}
-          onClick={() => onCardClick(card.id)}
+          isHeld={card.id === heldWordId}
+          shake={card.id === shakeCardId}
+          onClick={() => (card.kind === 'category' ? onCategoryClick(card.id) : onWordClick(card.id))}
           style={{ top: i * OVERLAP_PX, zIndex: i }}
         />
       ))}
