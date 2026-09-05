@@ -17,6 +17,13 @@ export function Card({
   style?: CSSProperties
 }) {
   if (!isActive) {
+    if (card.kind === 'word' && card.revealed) {
+      return (
+        <button className="card card--buried" style={style} disabled>
+          <span className="card__word">{card.word}</span>
+        </button>
+      )
+    }
     return (
       <button className="card card--locked" style={style} disabled>
         <span className="card__back" aria-hidden />

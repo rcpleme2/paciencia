@@ -23,6 +23,7 @@ export interface WordCard {
   word: string
   trueCategoryId: CategoryId
   isRedHerring: boolean
+  revealed: boolean
 }
 
 export interface CategoryMarkerCard {
@@ -81,5 +82,6 @@ export type GameAction =
   | { type: 'SELECT_WORD'; cardId: string }
   | { type: 'PROMOTE_CATEGORY'; cardId: string }
   | { type: 'DEPOSIT'; categoryId: CategoryId }
+  | { type: 'MOVE_TO_EMPTY'; colIndex: number }
   | { type: 'DRAW_STOCK' }
   | { type: 'ACK_ANIMATION' }
