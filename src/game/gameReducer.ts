@@ -1,8 +1,8 @@
 import { wordBank } from '../data/categories'
-import { emptyColumnCount, findColumnIndex, isBoardCleared } from './boardQueries'
+import { findColumnIndex, isBoardCleared } from './boardQueries'
 import { generateLevel } from './levelGenerator'
 import { isBoardStuck } from './stuckDetection'
-import type { GameAction, GameState } from './types'
+import type { Card, Column, GameAction, GameState } from './types'
 
 export function createInitialLevelState(levelNumber: number, seed: number): GameState {
   const level = generateLevel({ levelNumber, seed, bank: wordBank })
@@ -15,6 +15,7 @@ export function createInitialLevelState(levelNumber: number, seed: number): Game
     levelNumber,
     seed,
     tableau: level.columns,
+    waste: [],
     stock: level.stock,
     foundations: [],
     categorySizes,
@@ -27,12 +28,34 @@ export function createInitialLevelState(levelNumber: number, seed: number): Game
   }
 }
 
-function findActiveCard(tableau: GameState['tableau'], cardId: string) {
-  const colIndex = findColumnIndex(tableau, cardId)
-  if (colIndex === -1) return null
-  const column = tableau[colIndex]
-  const card = column[column.length - 1]
-  return { colIndex, card }
+type CardLocation = { zone: 'tableau'; colIndex: number } | { zone: 'waste' }
+
+function findActiveCard(state: GameState, cardId: string): { location: CardLocation; card: Card } | null {
+  const colIndex = findColumnIndex(state.tableau, cardId)
+  if (colIndex !== -1) {
+    const column = state.tableau[colIndex]
+    return { location: { zone: 'tableau', colIndex }, card: column[column.length - 1] }
+  }
+  const wasteTop = state.waste[state.waste.length - 1]
+  if (wasteTop && wasteTop.id === cardId) {
+    return { location: { zone: 'waste' }, card: wasteTop }
+  }
+  return null
+}
+
+function removeActiveCard(state: GameState, location: CardLocation): { tableau: Column[]; waste: Column } {
+  if (location.zone === 'waste') {
+    return { tableau: state.tableau, waste: state.waste.slice(0, -1) }
+  }
+  const tableau = state.tableau.map((col, i) => (i === location.colIndex ? col.slice(0, -1) : col))
+  return { tableau, waste: state.waste }
+}
+
+function appendCard(tableau: Column[], waste: Column, location: CardLocation, card: Card): { tableau: Column[]; waste: Column } {
+  if (location.zone === 'waste') {
+    return { tableau, waste: [...waste, card] }
+  }
+  return { tableau: tableau.map((col, i) => (i === location.colIndex ? [...col, card] : col)), waste }
 }
 
 export function gameReducer(state: GameState, action: GameAction): GameState {
@@ -42,32 +65,45 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case 'SELECT_WORD': {
       if (state.phase !== 'playing') return state
-      const found = findActiveCard(state.tableau, action.cardId)
+      const found = findActiveCard(state, action.cardId)
       if (!found || found.card.kind !== 'word') return state
-      const selectedWordId = state.selectedWordId === action.cardId ? null : action.cardId
-      return { ...state, selectedWordId }
+
+      if (state.selectedWordId === action.cardId) {
+        return { ...state, selectedWordId: null }
+      }
+
+      if (state.selectedWordId) {
+        const held = findActiveCard(state, state.selectedWordId)
+        if (held && held.card.kind === 'word' && held.card.trueCategoryId === found.card.trueCategoryId) {
+          const removed = removeActiveCard(state, held.location)
+          const appended = appendCard(removed.tableau, removed.waste, found.location, held.card)
+          return { ...state, tableau: appended.tableau, waste: appended.waste, selectedWordId: null, lastAction: 'stack' }
+        }
+      }
+
+      return { ...state, selectedWordId: action.cardId }
     }
 
     case 'PROMOTE_CATEGORY': {
       if (state.phase !== 'playing') return state
-      const found = findActiveCard(state.tableau, action.cardId)
+      const found = findActiveCard(state, action.cardId)
       if (!found || found.card.kind !== 'category') return state
       const marker = found.card
       if (state.foundations.some((f) => f.categoryId === marker.categoryId)) return state
 
-      const tableau = state.tableau.map((col, i) => (i === found.colIndex ? col.slice(0, -1) : col))
+      const removed = removeActiveCard(state, found.location)
       const sizeInfo = state.categorySizes[marker.categoryId]
       const foundations = [
         ...state.foundations,
         { categoryId: marker.categoryId, label: marker.label, size: sizeInfo?.size ?? 4, progress: 0 },
       ]
-      return { ...state, tableau, foundations, lastAction: 'promote' }
+      return { ...state, tableau: removed.tableau, waste: removed.waste, foundations, lastAction: 'promote' }
     }
 
     case 'DEPOSIT': {
       if (state.phase !== 'playing') return state
       if (!state.selectedWordId) return state
-      const found = findActiveCard(state.tableau, state.selectedWordId)
+      const found = findActiveCard(state, state.selectedWordId)
       if (!found || found.card.kind !== 'word') return state
       const foundationIndex = state.foundations.findIndex((f) => f.categoryId === action.categoryId)
       if (foundationIndex === -1) return state
@@ -76,13 +112,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const correct = word.trueCategoryId === action.categoryId
 
       if (correct) {
-        const tableau = state.tableau.map((col, i) => (i === found.colIndex ? col.slice(0, -1) : col))
+        const removed = removeActiveCard(state, found.location)
         const foundations = state.foundations.map((f, i) => (i === foundationIndex ? { ...f, progress: f.progress + 1 } : f))
-        const stillStuck = isBoardStuck(tableau, state.stock, foundations)
-        const cleared = isBoardCleared(tableau, state.stock)
+        const stillStuck = isBoardStuck(removed.tableau, removed.waste, state.stock, foundations)
+        const cleared = isBoardCleared(removed.tableau, removed.waste, state.stock)
         return {
           ...state,
-          tableau,
+          tableau: removed.tableau,
+          waste: removed.waste,
           foundations,
           selectedWordId: null,
           movesMade: state.movesMade + 1,
@@ -113,18 +150,13 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case 'DRAW_STOCK': {
       if (state.phase !== 'playing') return state
-      const gaps = emptyColumnCount(state.tableau)
-      if (gaps === 0 || state.stock.length === 0) return state
+      if (state.stock.length === 0) return state
 
       const stock = [...state.stock]
-      const tableau = state.tableau.map((col) => [...col])
-      for (const col of tableau) {
-        if (col.length === 0 && stock.length > 0) {
-          col.push(stock.pop()!)
-        }
-      }
-      const stuck = isBoardStuck(tableau, stock, state.foundations)
-      return { ...state, tableau, stock, phase: stuck ? 'lost' : 'playing' }
+      const drawn = stock.pop()!
+      const waste = [...state.waste, drawn]
+      const stuck = isBoardStuck(state.tableau, waste, stock, state.foundations)
+      return { ...state, stock, waste, phase: stuck ? 'lost' : 'playing' }
     }
 
     default:

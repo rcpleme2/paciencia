@@ -2,7 +2,7 @@ import { isActive } from '../game/boardQueries'
 import type { Column as ColumnType } from '../game/types'
 import { Card } from './Card'
 
-const OVERLAP_PX = 34
+const OVERLAP_PX = 32
 
 export function Column({
   column,
@@ -18,7 +18,7 @@ export function Column({
   onCategoryClick: (cardId: string) => void
 }) {
   return (
-    <div className="column" style={{ minHeight: Math.max(140, column.length * OVERLAP_PX + 110) }}>
+    <div className="column" style={{ minHeight: Math.max(150, (column.length - 1) * OVERLAP_PX + 130) }}>
       {column.map((card, i) => (
         <Card
           key={card.id}
