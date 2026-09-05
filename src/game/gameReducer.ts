@@ -10,7 +10,7 @@ export function createInitialLevelState(levelNumber: number, seed: number): Game
   for (const def of level.categoryDefs) {
     categorySizes[def.categoryId] = { label: def.label, size: def.size }
   }
-  return {
+  return revealTopsInState({
     phase: 'playing',
     levelNumber,
     seed,
@@ -25,7 +25,7 @@ export function createInitialLevelState(levelNumber: number, seed: number): Game
     movesMade: 0,
     lastAction: null,
     lastDepositCategory: null,
-  }
+  })
 }
 
 type CardLocation = { zone: 'tableau'; colIndex: number } | { zone: 'waste' }
@@ -58,7 +58,22 @@ function appendCard(tableau: Column[], waste: Column, location: CardLocation, ca
   return { tableau: tableau.map((col, i) => (i === location.colIndex ? [...col, card] : col)), waste }
 }
 
-export function gameReducer(state: GameState, action: GameAction): GameState {
+// Once a card has ever been on top of its column (i.e. visible/active), it
+// stays visible forever, even if later buried under a card the player
+// stacks on top of it — same convention as classic solitaire, and what
+// makes player-built same-category piles show every card underneath.
+function revealTop(column: Column): Column {
+  if (column.length === 0) return column
+  const top = column[column.length - 1]
+  if (top.kind !== 'word' || top.revealed) return column
+  return [...column.slice(0, -1), { ...top, revealed: true }]
+}
+
+function revealTopsInState(state: GameState): GameState {
+  return { ...state, tableau: state.tableau.map(revealTop), waste: revealTop(state.waste) }
+}
+
+function gameReducerCore(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case 'START_LEVEL':
       return createInitialLevelState(action.levelNumber, action.seed)
@@ -140,6 +155,20 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       }
     }
 
+    case 'MOVE_TO_EMPTY': {
+      if (state.phase !== 'playing') return state
+      if (!state.selectedWordId) return state
+      if (state.tableau[action.colIndex]?.length !== 0) return state
+
+      const found = findActiveCard(state, state.selectedWordId)
+      if (!found) return state
+      if (found.location.zone === 'tableau' && found.location.colIndex === action.colIndex) return state
+
+      const removed = removeActiveCard(state, found.location)
+      const tableau = removed.tableau.map((col, i) => (i === action.colIndex ? [found.card] : col))
+      return { ...state, tableau, waste: removed.waste, selectedWordId: null, lastAction: 'stack' }
+    }
+
     case 'ACK_ANIMATION':
       return {
         ...state,
@@ -162,4 +191,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     default:
       return state
   }
+}
+
+export function gameReducer(state: GameState, action: GameAction): GameState {
+  const next = gameReducerCore(state, action)
+  if (next === state) return next
+  return revealTopsInState(next)
 }

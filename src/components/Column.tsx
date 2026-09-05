@@ -10,13 +10,16 @@ export function Column({
   shakeCardId,
   onWordClick,
   onCategoryClick,
+  onEmptyClick,
 }: {
   column: ColumnType
   heldWordId: string | null
   shakeCardId: string | null
   onWordClick: (cardId: string) => void
   onCategoryClick: (cardId: string) => void
+  onEmptyClick?: () => void
 }) {
+  const isHolding = heldWordId !== null
   return (
     <div className="column" style={{ minHeight: Math.max(150, (column.length - 1) * OVERLAP_PX + 130) }}>
       {column.map((card, i) => (
@@ -30,7 +33,18 @@ export function Column({
           style={{ top: i * OVERLAP_PX, zIndex: i }}
         />
       ))}
-      {column.length === 0 && <div className="column__gap">vazio</div>}
+      {column.length > 1 && <span className="column__count">×{column.length}</span>}
+      {column.length === 0 &&
+        (onEmptyClick ? (
+          <button
+            className={['column__gap', 'column__gap--clickable', isHolding ? 'column__gap--targetable' : ''].join(' ')}
+            onClick={onEmptyClick}
+          >
+            vazio
+          </button>
+        ) : (
+          <div className="column__gap">vazio</div>
+        ))}
     </div>
   )
 }

@@ -3,7 +3,7 @@ import { isBoardStuck } from './stuckDetection'
 import type { Card, Column, Foundation } from './types'
 
 function word(id: string, cat: string): Card {
-  return { kind: 'word', id, word: id, trueCategoryId: cat, isRedHerring: false }
+  return { kind: 'word', id, word: id, trueCategoryId: cat, isRedHerring: false, revealed: true }
 }
 
 function marker(id: string, cat: string): Card {

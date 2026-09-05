@@ -53,6 +53,7 @@ export function Board() {
             shakeCardId={shakeCardId}
             onWordClick={(cardId) => dispatch({ type: 'SELECT_WORD', cardId })}
             onCategoryClick={(cardId) => dispatch({ type: 'PROMOTE_CATEGORY', cardId })}
+            onEmptyClick={() => dispatch({ type: 'MOVE_TO_EMPTY', colIndex: i })}
           />
         ))}
       </div>

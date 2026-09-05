@@ -53,7 +53,7 @@ export function generateLevel({ levelNumber, seed, bank, recentlyUsedWords }: Ge
     const words = pickRandom(rng, wordsToUse, desiredSize)
     wordCardsByCategory.set(
       category.id,
-      words.map((word) => ({ kind: 'word', id: nextId(), word, trueCategoryId: category.id, isRedHerring: false })),
+      words.map((word) => ({ kind: 'word', id: nextId(), word, trueCategoryId: category.id, isRedHerring: false, revealed: false })),
     )
     categoryDefs.push({ categoryId: category.id, label: category.label, size: words.length })
   }
@@ -68,7 +68,7 @@ export function generateLevel({ levelNumber, seed, bank, recentlyUsedWords }: Ge
   for (const herring of liveHerrings) {
     const group = wordCardsByCategory.get(herring.trueCategory)
     if (!group || group.some((c) => c.word === herring.word)) continue
-    group[0] = { kind: 'word', id: nextId(), word: herring.word, trueCategoryId: herring.trueCategory, isRedHerring: true }
+    group[0] = { kind: 'word', id: nextId(), word: herring.word, trueCategoryId: herring.trueCategory, isRedHerring: true, revealed: false }
   }
 
   const categoryMarkers: CategoryMarkerCard[] = chosenCategories.map((category) => ({
