@@ -52,7 +52,7 @@ export interface DifficultyParams {
 
 export type GamePhase = 'playing' | 'won' | 'lost'
 
-export type LastAction = 'promote' | 'deposit-correct' | 'deposit-wrong' | null
+export type LastAction = 'promote' | 'deposit-correct' | 'deposit-wrong' | 'stack' | null
 
 export interface CategorySize {
   label: string
@@ -64,6 +64,7 @@ export interface GameState {
   levelNumber: number
   seed: number
   tableau: Column[]
+  waste: Column
   stock: Card[]
   foundations: Foundation[]
   categorySizes: Record<CategoryId, CategorySize>
