@@ -1,25 +1,38 @@
 import { wordBank } from '../data/categories'
 import { emptyColumnCount, findColumnIndex, isBoardCleared } from './boardQueries'
 import { generateLevel } from './levelGenerator'
-import { validateMatch } from './matchValidation'
 import { isBoardStuck } from './stuckDetection'
 import type { GameAction, GameState } from './types'
 
 export function createInitialLevelState(levelNumber: number, seed: number): GameState {
   const level = generateLevel({ levelNumber, seed, bank: wordBank })
+  const categorySizes: GameState['categorySizes'] = {}
+  for (const def of level.categoryDefs) {
+    categorySizes[def.categoryId] = { label: def.label, size: def.size }
+  }
   return {
     phase: 'playing',
     levelNumber,
     seed,
     tableau: level.columns,
     stock: level.stock,
-    selected: [],
+    foundations: [],
+    categorySizes,
+    selectedWordId: null,
     mistakes: 0,
     maxMistakes: level.maxMistakes,
     movesMade: 0,
-    lastMatchResult: null,
-    lastMatchedCategory: null,
+    lastAction: null,
+    lastDepositCategory: null,
   }
+}
+
+function findActiveCard(tableau: GameState['tableau'], cardId: string) {
+  const colIndex = findColumnIndex(tableau, cardId)
+  if (colIndex === -1) return null
+  const column = tableau[colIndex]
+  const card = column[column.length - 1]
+  return { colIndex, card }
 }
 
 export function gameReducer(state: GameState, action: GameAction): GameState {
@@ -27,40 +40,54 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case 'START_LEVEL':
       return createInitialLevelState(action.levelNumber, action.seed)
 
-    case 'SELECT_CARD': {
+    case 'SELECT_WORD': {
       if (state.phase !== 'playing') return state
-      if (state.selected.includes(action.cardId)) return state
-      const colIndex = findColumnIndex(state.tableau, action.cardId)
-      if (colIndex === -1) return state
+      const found = findActiveCard(state.tableau, action.cardId)
+      if (!found || found.card.kind !== 'word') return state
+      const selectedWordId = state.selectedWordId === action.cardId ? null : action.cardId
+      return { ...state, selectedWordId }
+    }
 
-      const selected = [...state.selected, action.cardId]
-      if (selected.length < 4) {
-        return { ...state, selected }
-      }
+    case 'PROMOTE_CATEGORY': {
+      if (state.phase !== 'playing') return state
+      const found = findActiveCard(state.tableau, action.cardId)
+      if (!found || found.card.kind !== 'category') return state
+      const marker = found.card
+      if (state.foundations.some((f) => f.categoryId === marker.categoryId)) return state
 
-      const selectedCards = selected.map((id) => {
-        for (const col of state.tableau) {
-          const card = col.find((c) => c.id === id)
-          if (card) return card
-        }
-        throw new Error('selected card not found')
-      })
+      const tableau = state.tableau.map((col, i) => (i === found.colIndex ? col.slice(0, -1) : col))
+      const sizeInfo = state.categorySizes[marker.categoryId]
+      const foundations = [
+        ...state.foundations,
+        { categoryId: marker.categoryId, label: marker.label, size: sizeInfo?.size ?? 4, progress: 0 },
+      ]
+      return { ...state, tableau, foundations, lastAction: 'promote' }
+    }
 
-      const correct = validateMatch(selectedCards)
+    case 'DEPOSIT': {
+      if (state.phase !== 'playing') return state
+      if (!state.selectedWordId) return state
+      const found = findActiveCard(state.tableau, state.selectedWordId)
+      if (!found || found.card.kind !== 'word') return state
+      const foundationIndex = state.foundations.findIndex((f) => f.categoryId === action.categoryId)
+      if (foundationIndex === -1) return state
+
+      const word = found.card
+      const correct = word.trueCategoryId === action.categoryId
+
       if (correct) {
-        const tableau = state.tableau.map((col) => {
-          const top = col[col.length - 1]
-          return top && selected.includes(top.id) ? col.slice(0, -1) : col
-        })
-        const stillStuck = isBoardStuck(tableau, state.stock)
+        const tableau = state.tableau.map((col, i) => (i === found.colIndex ? col.slice(0, -1) : col))
+        const foundations = state.foundations.map((f, i) => (i === foundationIndex ? { ...f, progress: f.progress + 1 } : f))
+        const stillStuck = isBoardStuck(tableau, state.stock, foundations)
         const cleared = isBoardCleared(tableau, state.stock)
         return {
           ...state,
           tableau,
-          selected: [],
+          foundations,
+          selectedWordId: null,
           movesMade: state.movesMade + 1,
-          lastMatchResult: 'correct',
-          lastMatchedCategory: selectedCards[0].trueCategoryId,
+          lastAction: 'deposit-correct',
+          lastDepositCategory: action.categoryId,
           phase: cleared ? 'won' : stillStuck ? 'lost' : 'playing',
         }
       }
@@ -68,19 +95,21 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const mistakes = state.mistakes + 1
       return {
         ...state,
-        selected,
         mistakes,
         movesMade: state.movesMade + 1,
-        lastMatchResult: 'incorrect',
+        lastAction: 'deposit-wrong',
+        lastDepositCategory: action.categoryId,
         phase: mistakes >= state.maxMistakes ? 'lost' : 'playing',
       }
     }
 
-    case 'CLEAR_SELECTION':
-      return { ...state, selected: [], lastMatchResult: null, lastMatchedCategory: null }
-
     case 'ACK_ANIMATION':
-      return { ...state, lastMatchResult: null, lastMatchedCategory: null }
+      return {
+        ...state,
+        lastAction: null,
+        lastDepositCategory: null,
+        selectedWordId: state.lastAction === 'deposit-wrong' ? null : state.selectedWordId,
+      }
 
     case 'DRAW_STOCK': {
       if (state.phase !== 'playing') return state
@@ -94,7 +123,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           col.push(stock.pop()!)
         }
       }
-      const stuck = isBoardStuck(tableau, stock)
+      const stuck = isBoardStuck(tableau, stock, state.foundations)
       return { ...state, tableau, stock, phase: stuck ? 'lost' : 'playing' }
     }
 

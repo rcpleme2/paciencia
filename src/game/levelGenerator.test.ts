@@ -4,21 +4,31 @@ import { activeCards } from './boardQueries'
 import { generateLevel } from './levelGenerator'
 
 describe('generateLevel', () => {
-  it('produces a total card count divisible by 4 and consistent per-category groups', () => {
+  it('produces exactly one category-marker card and `size` word cards per chosen category', () => {
     for (let level = 1; level <= 30; level += 3) {
       const result = generateLevel({ levelNumber: level, seed: level * 7919, bank: wordBank })
-      expect(result.totalCards % 4).toBe(0)
-
       const allCards = [...result.columns.flat(), ...result.stock]
       expect(allCards.length).toBe(result.totalCards)
 
-      const counts = new Map<string, number>()
-      for (const card of allCards) {
-        counts.set(card.trueCategoryId, (counts.get(card.trueCategoryId) ?? 0) + 1)
+      const markerCategoryIds = allCards.filter((c) => c.kind === 'category').map((c) => c.categoryId)
+      expect(new Set(markerCategoryIds).size).toBe(result.categoriesUsed.length)
+      expect(markerCategoryIds.length).toBe(result.categoriesUsed.length)
+
+      for (const def of result.categoryDefs) {
+        expect(def.size).toBeGreaterThanOrEqual(3)
+        expect(def.size).toBeLessThanOrEqual(6)
+        const wordCount = allCards.filter((c) => c.kind === 'word' && c.trueCategoryId === def.categoryId).length
+        expect(wordCount).toBe(def.size)
       }
-      for (const count of counts.values()) {
-        expect(count % 4).toBe(0)
-      }
+    }
+  })
+
+  it('deals an initial tableau of 8 to 12 cards', () => {
+    for (let level = 1; level <= 20; level++) {
+      const result = generateLevel({ levelNumber: level, seed: level * 12345, bank: wordBank })
+      const initialCount = result.columns.flat().length
+      expect(initialCount).toBeGreaterThanOrEqual(Math.min(8, result.totalCards))
+      expect(initialCount).toBeLessThanOrEqual(12)
     }
   })
 
@@ -26,8 +36,9 @@ describe('generateLevel', () => {
     for (let level = 4; level <= 30; level += 2) {
       const result = generateLevel({ levelNumber: level, seed: level * 104729, bank: wordBank })
       const allCards = [...result.columns.flat(), ...result.stock]
-      const herrings = allCards.filter((c) => c.isRedHerring)
+      const herrings = allCards.filter((c) => c.kind === 'word' && c.isRedHerring)
       for (const herring of herrings) {
+        if (herring.kind !== 'word') continue
         const source = wordBank.ambiguousWords.find((h) => h.word === herring.word)
         expect(source).toBeDefined()
         const hasLiveAlternate = source!.alternateCategories.some((alt) => result.categoriesUsed.includes(alt))
@@ -36,22 +47,18 @@ describe('generateLevel', () => {
     }
   })
 
-  it('always has at least one matchable group of 4 exposed at the start of the board', () => {
+  it('always has a promotable category card exposed at the start of the board', () => {
     for (let level = 1; level <= 30; level++) {
       const result = generateLevel({ levelNumber: level, seed: level * 65537, bank: wordBank })
       const active = activeCards(result.columns)
-      const counts = new Map<string, number>()
-      for (const card of active) {
-        counts.set(card.trueCategoryId, (counts.get(card.trueCategoryId) ?? 0) + 1)
-      }
-      const hasImmediateMatch = Array.from(counts.values()).some((count) => count >= 4)
-      expect(hasImmediateMatch).toBe(true)
+      expect(active.some((c) => c.kind === 'category')).toBe(true)
     }
   })
 
   it('is deterministic for a given seed', () => {
     const a = generateLevel({ levelNumber: 5, seed: 42, bank: wordBank })
     const b = generateLevel({ levelNumber: 5, seed: 42, bank: wordBank })
-    expect(a.columns.map((c) => c.map((card) => card.word))).toEqual(b.columns.map((c) => c.map((card) => card.word)))
+    const describe = (r: typeof a) => r.columns.map((c) => c.map((card) => (card.kind === 'word' ? card.word : `#${card.label}`)))
+    expect(describe(a)).toEqual(describe(b))
   })
 })

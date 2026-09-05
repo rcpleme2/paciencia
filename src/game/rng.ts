@@ -23,6 +23,10 @@ export function pickRandom<T>(rng: RNG, items: T[], count: number): T[] {
   return picked
 }
 
+export function randomInt(rng: RNG, min: number, max: number): number {
+  return min + Math.floor(rng() * (max - min + 1))
+}
+
 export function shuffle<T>(rng: RNG, items: T[]): T[] {
   const arr = [...items]
   for (let i = arr.length - 1; i > 0; i--) {
